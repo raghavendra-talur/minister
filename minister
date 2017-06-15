@@ -48,7 +48,7 @@ create_containers() {
                 do mkdir -p ${PWD}/${METADATA_DIR}/node${n};
                 myip=`expr $n + 1`
                 mkdir -p ${PWD}/${METADATA_DIR}/node${n}/etc-glusterfs;
-                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/disks;
+                mkdir -p ${PWD}/${METADATA_DIR}/disks;
                 mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-lib-glusterd;
                 mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-log-glusterfs;
                 mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-lib-heketi;
@@ -57,7 +57,7 @@ create_containers() {
                            -v ${PWD}/${METADATA_DIR}/node${n}/var-log-glusterfs:/var/log/glusterfs:z \
                            -v ${PWD}/${METADATA_DIR}/node${n}/var-lib-heketi:/var/lib/heketi:z \
                            -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
-                           -v ${PWD}/${METADATA_DIR}/node${n}/disks:/disks:z \
+                           -v ${PWD}/${METADATA_DIR}/disks:/disks:z \
                            -v ${PWD}/${METADATA_DIR}/authorized_keys:/root/.ssh/authorized_keys:z \
                            -d --privileged=true --name gluster-node${n} \
                            --net ${DOCKER_NETWORK_NAME} \
@@ -65,8 +65,8 @@ create_containers() {
                            --hostname gluster-node${n} \
                            $IMAGE
                 for m in $(seq 1 $DISK_COUNT);
-                         do truncate -s $DISK_SIZE ${PWD}/${METADATA_DIR}/node${n}/disks/${DISK_NAME}${m};
-                         docker exec -it gluster-node${n} losetup --find --show /disks/${DISK_NAME}${m} ${REDIRECT}
+                         do truncate -s $DISK_SIZE ${PWD}/${METADATA_DIR}/disks/node${n}-${DISK_NAME}${m};
+                         docker exec -it gluster-node${n} losetup --find --show /disks/node${n}-${DISK_NAME}${m} ${REDIRECT}
                 done
                 docker exec -it gluster-node${n} sed -i 's/udev_sync\s*=\s*1/udev_sync = 0/' /etc/lvm/lvm.conf
                 docker exec -it gluster-node${n} sed -i 's/udev_rules\s*=\s*1/udev_rules = 0/' /etc/lvm/lvm.conf
