@@ -1,0 +1,147 @@
+#!/bin/bash
+
+METADATA_DIR=".minister"
+DEBUG=0
+REDIRECT=""
+#REDIRECT="2>&1 >/dev/null"
+
+NODE_COUNT=3
+DISK_COUNT=4
+
+DISK_SIZE="500G"
+DISK_NAME="minister-brick"
+
+IMAGE="gluster/gluster-centos"
+#IMAGE="brew-pulp-docker01.web.prod.ext.phx2.redhat.com:8888/rhgs3/rhgs-server-rhel7"
+
+DOCKER_SUBNET="172.18.0."
+DOCKER_NETWORK_NAME="minister-net"
+
+SSH_KEY_NAME="minister-key"
+
+docker_network_exists() {
+        docker network list | grep -q $DOCKER_NETWORK_NAME ${REDIRECT}
+}
+
+create_docker_network() {
+        echo "Creating network..."
+        docker network create --subnet ${DOCKER_SUBNET}0/16 $DOCKER_NETWORK_NAME
+}
+
+create_ssh_keys() {
+        ssh-keygen -q -t rsa -N '' -f ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME} ${REDIRECT}
+        cp ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME}.pub ${PWD}/${METADATA_DIR}/authorized_keys
+}
+
+create_metadata_dir() {
+        mkdir ${PWD}/${METADATA_DIR}
+}
+create_loop_devices() {
+        for loop_num in {0..64};
+        do
+                mknod /dev/loop${loop_num} -m0660 b 7 ${loop_num} ${REDIRECT}
+        done
+}
+
+create_containers() {
+        for n in $(seq 1 $NODE_COUNT);
+                do mkdir -p ${PWD}/${METADATA_DIR}/node${n};
+                myip=`expr $n + 1`
+                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/etc-glusterfs;
+                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/disks;
+                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-lib-glusterd;
+                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-log-glusterfs;
+                mkdir -p ${PWD}/${METADATA_DIR}/node${n}/var-lib-heketi;
+                docker run -v ${PWD}/${METADATA_DIR}/node${n}/etc-glusterfs:/etc/glusterfs:z \
+                           -v ${PWD}/${METADATA_DIR}/node${n}/var-lib-glusterd:/var/lib/glusterd:z \
+                           -v ${PWD}/${METADATA_DIR}/node${n}/var-log-glusterfs:/var/log/glusterfs:z \
+                           -v ${PWD}/${METADATA_DIR}/node${n}/var-lib-heketi:/var/lib/heketi:z \
+                           -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+                           -v ${PWD}/${METADATA_DIR}/node${n}/disks:/disks:z \
+                           -v ${PWD}/${METADATA_DIR}/authorized_keys:/root/.ssh/authorized_keys:z \
+                           -d --privileged=true --name gluster-node${n} \
+                           --net ${DOCKER_NETWORK_NAME} \
+                           --ip ${DOCKER_SUBNET}${myip} \
+                           --hostname gluster-node${n} \
+                           $IMAGE
+                for m in $(seq 1 $DISK_COUNT);
+                         do truncate -s $DISK_SIZE ${PWD}/${METADATA_DIR}/node${n}/disks/${DISK_NAME}${m};
+                         docker exec -it gluster-node${n} losetup --find --show /disks/${DISK_NAME}${m} ${REDIRECT}
+                done
+                docker exec -it gluster-node${n} sed -i 's/udev_sync\s*=\s*1/udev_sync = 0/' /etc/lvm/lvm.conf
+                docker exec -it gluster-node${n} sed -i 's/udev_rules\s*=\s*1/udev_rules = 0/' /etc/lvm/lvm.conf
+                docker exec -it gluster-node${n} sed -i 's/use_lvmetad\s*=\s*1/use_lvmetad = 0/' /etc/lvm/lvm.conf
+                docker exec -it gluster-node${n} pvscan --cache
+                docker exec -it gluster-node${n} iptables -F
+        done
+}
+
+delete_containers() {
+        echo "killing containers"
+        docker rm -f `docker ps --no-trunc -a | grep gluster | cut -d" " -f1` ${REDIRECT}
+}
+
+delete_vgs_and_pvs() {
+        echo "deleting vgs and pvs"
+        pvscan --cache  ${REDIRECT} 
+        pvs   1>/dev/null ${REDIRECT}
+        for pv in `losetup --list | grep ${DISK_NAME} | cut -d" " -f1` ;
+        do
+                for vg in $(eval "pvs | grep $pv"  | awk {'print $2'}) ;
+                do
+                        echo "........deleting vg $vg"
+                        vgremove -ff -y $vg ${REDIRECT} 
+                done;
+                echo "....deleting pv $pv "
+                pvremove --force $pv  ${REDIRECT}
+        done
+}
+
+delete_loop_devices() {
+        echo "deleting loop back devices"
+        losetup -d `losetup --list | grep ${DISK_NAME} | cut -d" " -f1` ${REDIRECT}
+}
+
+delete_metadata_dir() {
+        echo "deleting metadata from ${METADATA_DIR}"
+        rm -rf ${PWD}/${METADATA_DIR}
+}
+
+sub_help() {
+        echo "Usage:"
+        echo "minister up : to create containers"
+        echo "minister down : to destroy container"
+        echo "minister is a program to create containerized gluster setup"
+}
+
+sub_up() {
+        docker_network_exists || create_docker_network 
+        create_metadata_dir
+        create_ssh_keys
+        create_loop_devices
+        create_containers
+}
+
+sub_down() {
+        delete_containers
+        delete_vgs_and_pvs
+        delete_loop_devices
+        delete_metadata_dir
+}
+
+subcommand=$1
+case $subcommand in
+    "" | "-h" | "--help")
+        sub_help
+        ;;
+    *)
+        shift
+        sub_${subcommand} $@
+        if [ $? = 127 ]; then
+            echo "Error: '$subcommand' is not a known subcommand." ${REDIRECT}
+            sub_help
+            exit 1
+        fi
+        ;;
+esac
+
