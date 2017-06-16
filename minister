@@ -17,7 +17,7 @@ IMAGE="gluster/gluster-centos"
 DOCKER_SUBNET="172.18.0."
 DOCKER_NETWORK_NAME="minister-net"
 
-SSH_KEY_NAME="minister-key"
+SSH_KEY_NAME="id_rsa"
 
 docker_network_exists() {
         docker network list | grep -q $DOCKER_NETWORK_NAME ${REDIRECT}
@@ -29,8 +29,7 @@ create_docker_network() {
 }
 
 create_ssh_keys() {
-        ssh-keygen -q -t rsa -N '' -f ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME} ${REDIRECT}
-        cp ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME}.pub ${PWD}/${METADATA_DIR}/authorized_keys
+        ssh-keygen -q -t rsa -N '' -f ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME}
 }
 
 create_metadata_dir() {
@@ -58,11 +57,12 @@ create_containers() {
                            -v ${PWD}/${METADATA_DIR}/node${n}/var-lib-heketi:/var/lib/heketi:z \
                            -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
                            -v ${PWD}/${METADATA_DIR}/disks:/disks:z \
-                           -v ${PWD}/${METADATA_DIR}/authorized_keys:/root/.ssh/authorized_keys:z \
-                           -d --privileged=true --name gluster-node${n} \
+                           --privileged=true \
+                           --name gluster-node${n} \
                            --net ${DOCKER_NETWORK_NAME} \
                            --ip ${DOCKER_SUBNET}${myip} \
                            --hostname gluster-node${n} \
+                           -d \
                            $IMAGE
                 for m in $(seq 1 $DISK_COUNT);
                          do truncate -s $DISK_SIZE ${PWD}/${METADATA_DIR}/disks/node${n}-${DISK_NAME}${m};
@@ -71,8 +71,25 @@ create_containers() {
                 docker exec -it gluster-node${n} sed -i 's/udev_sync\s*=\s*1/udev_sync = 0/' /etc/lvm/lvm.conf
                 docker exec -it gluster-node${n} sed -i 's/udev_rules\s*=\s*1/udev_rules = 0/' /etc/lvm/lvm.conf
                 docker exec -it gluster-node${n} sed -i 's/use_lvmetad\s*=\s*1/use_lvmetad = 0/' /etc/lvm/lvm.conf
+
+                docker exec -it gluster-node${n} mkdir /root/.ssh
+                docker exec -it gluster-node${n} chown root:root /root/.ssh
+                docker exec -it gluster-node${n} chmod 700 /root/.ssh
+
+                docker cp ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME}.pub gluster-node${n}:/root/.ssh/
+                docker exec -it gluster-node${n} chown root:root /root/.ssh/${SSH_KEY_NAME}.pub
+                docker exec -it gluster-node${n} chmod 644 /root/.ssh/${SSH_KEY_NAME}.pub
+
+                docker cp ${PWD}/${METADATA_DIR}/${SSH_KEY_NAME} gluster-node${n}:/root/.ssh/
+                docker exec -it gluster-node${n} chown root:root /root/.ssh/${SSH_KEY_NAME}
+                docker exec -it gluster-node${n} chmod 600 /root/.ssh/${SSH_KEY_NAME}
+
+                docker cp ~/.ssh/id_rsa.pub gluster-node${n}:/root/.ssh/authorized_keys
+                docker exec -it gluster-node${n} bash -c "cat /root/.ssh/${SSH_KEY_NAME}.pub >> /root/.ssh/authorized_keys"
+                docker exec -it gluster-node${n} chown root:root /root/.ssh/authorized_keys
+                docker exec -it gluster-node${n} chmod 644 /root/.ssh/authorized_keys
+
                 docker exec -it gluster-node${n} pvscan --cache
-                docker exec -it gluster-node${n} iptables -F
         done
 }
 
@@ -83,9 +100,9 @@ delete_containers() {
 
 delete_vgs_and_pvs() {
         echo "deleting vgs and pvs"
-        pvscan --cache  ${REDIRECT} 
+        pvscan --cache  ${REDIRECT}
         pvs   1>/dev/null ${REDIRECT}
-        for pv in `losetup --list | grep ${DISK_NAME} | cut -d" " -f1` ;
+        for pv in `losetup -n --list | grep ${DISK_NAME} | cut -d" " -f1` ;
         do
                 for vg in $(eval "pvs | grep $pv"  | awk {'print $2'}) ;
                 do
@@ -99,7 +116,7 @@ delete_vgs_and_pvs() {
 
 delete_loop_devices() {
         echo "deleting loop back devices"
-        losetup -d `losetup --list | grep ${DISK_NAME} | cut -d" " -f1` ${REDIRECT}
+        losetup -d `losetup -n --list | grep ${DISK_NAME} | cut -d" " -f1` ${REDIRECT}
 }
 
 delete_metadata_dir() {
