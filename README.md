@@ -1,5 +1,7 @@
 # minister
-A Gluster cluster creator using docker on the lines of Minikube and Minishift
+A Gluster cluster creator using docker on the lines of Minikube and Minishift  
+
+[![asciicast](https://asciinema.org/a/ZyLmr1Hj9dfqUA6y8xt98HEMI.png)](https://asciinema.org/a/ZyLmr1Hj9dfqUA6y8xt98HEMI)
 
 
 # USAGE
