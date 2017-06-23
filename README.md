@@ -5,7 +5,7 @@ A Gluster cluster creator using docker on the lines of Minikube and Minishift
 
 
 # USAGE
-./minister up : to create containers, use ENV VARs to override defaults
+./minister up : to create containers, use ENV VARs to override defaults  
 ./minister down: to delete setup
 
 
