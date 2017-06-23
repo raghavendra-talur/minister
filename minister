@@ -136,13 +136,15 @@ create_container() {
                    --hostname $con_name \
                    -d \
                    $IMAGE 1>/dev/null 2>&1
+        echo "container created: $con_name with ip ${DOCKER_SUBNET}${ip_last}"
         for m in $(seq 1 $num_disks);
         do
                 docker exec -it $con_name truncate -s $DISK_SIZE /disks/node${ip_last}-${DISK_NAME}${m}
-                docker exec -it $con_name losetup --find --show /disks/node${ip_last}-${DISK_NAME}${m} 1>/dev/null 2>&1
+                disk_created=$(docker exec -it $con_name losetup --find --show /disks/node${ip_last}-${DISK_NAME}${m})
+                echo "${con_name}-disk${m}: ${disk_created}"
         done
 
-        docker exec -it $con_name pvscan --cache
+        docker exec -it $con_name pvscan --cache 1>/dev/null 2>&1
 
 }
 
