@@ -32,7 +32,7 @@ print_log() {
 }
 
 docker_network_exists() {
-        docker network list | grep -q $DOCKER_NETWORK_NAME
+        docker network ls | grep -q $DOCKER_NETWORK_NAME
 }
 
 docker_image_exists() {
